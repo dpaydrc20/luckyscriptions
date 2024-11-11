@@ -1,7 +1,7 @@
 ```markdown
 # LuckyScriptions
 
-**LuckyScriptions** is a versatile JavaScript tool for interacting with the [LuckyCoin](https://luckycoin.org/) blockchain. It provides functionalities to manage wallets, mint inscriptions, deploy and transfer tokens, and run a local server to extract data from transactions. Additionally, it supports delegate minting, allowing users to associate inscriptions with delegate transaction IDs.
+**LuckyScriptions** is a versatile inscription tool for interacting with the LuckyCoin blockchain. It provides functionalities to manage wallets, mint inscriptions, deploy and transfer tokens, and run a local server to extract data from transactions. Additionally, it supports delegate minting, allowing users to associate inscriptions with delegate transaction IDs.
 
 ## Table of Contents
 
