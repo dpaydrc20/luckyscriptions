@@ -30,26 +30,12 @@ async function main() {
     console.log(`Command: ${cmd}`);
 
     if (cmd === 'mint') {
-        if (fs.existsSync(PENDING_PATH)) {
-            console.log('Found pending-txs.json. Rebroadcasting...');
-            const txs = JSON.parse(fs.readFileSync(PENDING_PATH));
-            await broadcastAll(
-                txs.map((tx) => new Transaction(tx)),
-                false
-            );
-            return;
-        }
+        const address = process.argv[3];
+        const contentTypeOrFilename = process.argv[4];
+        const hexData = process.argv[5];
+        const delegateTxId = process.argv[6] || "";
 
-        const count = parseInt(process.argv[5], 10);
-        if (!isNaN(count)) {
-            for (let i = 0; i < count; i++) {
-                await mint();
-            }
-        } else {
-            await mint();
-        }
-
-        console.log("Broadcast complete.");
+        await mint(address, contentTypeOrFilename, hexData, delegateTxId);
     } else if (cmd === 'mint-luckymap') {
         await mintLuckymap();
     } else if (cmd === 'deploy-lky') {
@@ -66,7 +52,6 @@ async function main() {
         throw new Error(`Unknown command: ${cmd}`);
     }
 }
-
 
 async function wallet() {
     const subcmd = process.argv[3];
@@ -240,9 +225,12 @@ async function mintLuckymap() {
     }
 }
 
-async function mint() {
-    const argAddress = process.argv[3];
-    const argContentTypeOrFilename = process.argv[4];
+async function mint(paramAddress, paramContentTypeOrFilename, paramHexData, paramDelegateTxId = "") {
+    const argAddress = paramAddress || process.argv[3];
+    const argContentTypeOrFilename = paramContentTypeOrFilename || process.argv[4];
+    const argHexData = paramHexData || process.argv[5];
+    const argDelegateTxId = process.argv[6] !== undefined ? process.argv[6] : paramDelegateTxId;
+
     console.log(`Minting to address: ${argAddress}`);
     console.log(`Content type or filename: ${argContentTypeOrFilename}`);
 
@@ -250,31 +238,41 @@ async function mint() {
     let contentType;
     let data;
 
-    if (fs.existsSync(argContentTypeOrFilename)) {
-        contentType = mime.contentType(mime.lookup(argContentTypeOrFilename));
-        data = fs.readFileSync(argContentTypeOrFilename);
-        console.log(`File found. Content type: ${contentType}`);
-    } else {
-        console.error(`File not found: ${argContentTypeOrFilename}`);
-        process.exit();
+    if (argDelegateTxId.length === 0) {  // Regular mint
+        if (fs.existsSync(argContentTypeOrFilename)) {
+            contentType = mime.contentType(mime.lookup(argContentTypeOrFilename));
+            data = fs.readFileSync(argContentTypeOrFilename);
+            console.log(`File found. Content type: ${contentType}`);
+        } else {
+            console.error(`File not found: ${argContentTypeOrFilename}`);
+            process.exit();
+        }
+
+        if (data.length === 0) {
+            throw new Error('No data to mint');
+        }
+
+        if (contentType.length > MAX_SCRIPT_ELEMENT_SIZE) {
+            throw new Error('Content type too long');
+        }
+    } else {  // Delegate mint
+        contentType = "text/plain;charset=utf-8";
+        data = Buffer.from(argDelegateTxId, 'utf8');
+        console.log(`Delegate TXID provided: ${argDelegateTxId}`);
     }
 
-    if (data.length === 0) {
-        throw new Error('No data to mint');
-    }
-
-    if (contentType.length > MAX_SCRIPT_ELEMENT_SIZE) {
-        throw new Error('Content type too long');
-    }
-
-    let wallet = JSON.parse(fs.readFileSync(WALLET_PATH));
+    let wallet = readWallet();
     console.log('Minting transaction...');
-    let txs = inscribe(wallet, address, contentType, data);
+    let txs = inscribe(wallet, address, contentType, data, argDelegateTxId);
     await broadcastAll(txs, false);
 
-    // Sync wallet to update balance
-    await walletSync();
-    console.log('Minting complete.');
+    if (argDelegateTxId.length === 0) {
+        // Sync wallet to update balance only for regular mint
+        await walletSync();
+        console.log('Minting complete.');
+    } else {
+        console.log('Delegate minting complete.');
+    }
 }
 
 async function broadcastAll(txs, retry) {
@@ -285,7 +283,7 @@ async function broadcastAll(txs, retry) {
             console.log(`broadcasting tx ${i + 1} of ${txs.length}`);
             await broadcast(txs[i], retry);
             console.log(`txid: ${txs[i].hash}`);
-            if (i === 1) {
+            if (i === 1 && txs.length > 1) { // Adjusted to check if multiple txs
                 inscriptionTxId = txs[i].hash;
             }
         } catch (e) {
@@ -299,8 +297,11 @@ async function broadcastAll(txs, retry) {
         fs.rmSync(PENDING_PATH);
     } catch (e) {}
 
-    console.log('✅ Inscription txid:', inscriptionTxId);
-    console.log('inscription complete continue to next file.');
+    if (txs.length > 1) {
+        console.log('✅ Inscription txid:', inscriptionTxId);
+        console.log('Inscription complete. Continue to next file.');
+    }
+
     return true;
 }
 
@@ -328,27 +329,37 @@ function opcodeToChunk(op) {
 const MAX_CHUNK_LEN = 240;
 const MAX_PAYLOAD_LEN = 1500;
 
-function inscribe(wallet, address, contentType, data) {
+function inscribe(wallet, address, contentType, data, delegateTxId = "") {
     let txs = [];
 
     let privateKey = new PrivateKey(wallet.privkey);
     let publicKey = privateKey.toPublicKey();
 
-    let parts = [];
-    while (data.length) {
-        let part = data.slice(0, Math.min(MAX_CHUNK_LEN, data.length));
-        data = data.slice(part.length);
-        parts.push(part);
-    }
-
     let inscription = new Script();
-    inscription.chunks.push(bufferToChunk('ord'));
-    inscription.chunks.push(numberToChunk(parts.length));
-    inscription.chunks.push(bufferToChunk(contentType));
-    parts.forEach((part, n) => {
-        inscription.chunks.push(numberToChunk(parts.length - n - 1));
-        inscription.chunks.push(bufferToChunk(part));
-    });
+
+    if (delegateTxId.length > 0) {  // Delegate mint
+        inscription.chunks.push(bufferToChunk('ord'));
+        inscription.chunks.push(numberToChunk(1));  // Indicate number of content types
+        inscription.chunks.push(numberToChunk(0));  // Empty content type
+        inscription.chunks.push(numberToChunk(0));  // Push 0 for data
+        inscription.chunks.push(numberToChunk(11)); // Push 11 for delegate
+        inscription.chunks.push(IdToChunk(delegateTxId)); // Convert delegateTxId to chunk
+    } else {  // Regular mint
+        let parts = [];
+        while (data.length) {
+            let part = data.slice(0, Math.min(MAX_CHUNK_LEN, data.length));
+            data = data.slice(part.length);
+            parts.push(part);
+        }
+
+        inscription.chunks.push(bufferToChunk('ord'));
+        inscription.chunks.push(numberToChunk(parts.length));
+        inscription.chunks.push(bufferToChunk(contentType));
+        parts.forEach((part, n) => {
+            inscription.chunks.push(numberToChunk(parts.length - n - 1));
+            inscription.chunks.push(bufferToChunk(part));
+        });
+    }
 
     let p2shInput;
     let lastLock;
@@ -388,7 +399,7 @@ function inscribe(wallet, address, contentType, data) {
 
         let p2shOutput = new Transaction.Output({
             script: p2sh,
-            satoshis: 10000000,
+            satoshis: delegateTxId.length > 0 ? 100000 : 10000000, // Adjust satoshis for delegate
         });
 
         let tx = new Transaction();
@@ -410,7 +421,7 @@ function inscribe(wallet, address, contentType, data) {
         updateWallet(wallet, tx);
         txs.push(tx);
 
-p2shInput = new Transaction.Input({
+        p2shInput = new Transaction.Input({
             prevTxId: tx.hash,
             outputIndex: 0,
             output: tx.outputs[0],
@@ -426,7 +437,7 @@ p2shInput = new Transaction.Input({
 
     let tx = new Transaction();
     tx.addInput(p2shInput);
-    tx.to(address, 10000000);
+    tx.to(address, delegateTxId.length > 0 ? 100000 : 10000000); // Adjust satoshis for delegate
     fund(wallet, tx);
 
     let signature = Transaction.sighash.sign(tx, privateKey, Signature.SIGHASH_ALL, 0, lastLock);
@@ -442,6 +453,25 @@ p2shInput = new Transaction.Input({
     txs.push(tx);
 
     return txs;
+}
+
+function IdToChunk(inscription_id) {
+    // Remove "i0" if present at the end of the txid
+    let txid = "";
+    if (inscription_id.endsWith('i0')) {
+        txid = inscription_id.slice(0, -2);
+    } else {
+        throw new Error("Provide your inscription id ending with 'i0'");
+    }
+
+    // Reverse the bytes of the TXID
+    const reversedTxidBuffer = Buffer.from(txid, 'hex').reverse();
+
+    return {
+        buf: reversedTxidBuffer,
+        len: 32,
+        opcodenum: 32
+    };
 }
 
 function fund(wallet, tx) {
