@@ -277,7 +277,7 @@ http://localhost:3000/tx/<txid>
 
 - **Insufficient Funds**
 
-  Ensure your wallet has enough DOGE balance to perform minting or sending operations. Use `wallet balance` to check your balance.
+  Ensure your wallet has enough LKY balance to perform minting or sending operations. Use `wallet balance` to check your balance.
 
 - **RPC Connection Issues**
 
