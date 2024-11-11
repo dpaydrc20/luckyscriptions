@@ -23,9 +23,9 @@
 
 ## Features
 
-- **Wallet Management**: Create, sync, check balance, send, and split DOGE funds.
+- **Wallet Management**: Create, sync, check balance, send, and split LKY funds.
 - **Minting Inscriptions**: Mint regular and delegate inscriptions on the LuckyCoin blockchain.
-- **Token Deployment**: Deploy and manage custom tokens (e.g., LKY-20/DRC-20).
+- **Token Deployment**: Deploy and manage custom tokens (e.g., LKY-20).
 - **Transaction Broadcasting**: Broadcast transactions with retry mechanisms and handle pending transactions.
 - **Local Server**: Run a server to extract and serve data from transactions.
 - **Delegate Minting**: Associate inscriptions with delegate transaction IDs for enhanced functionality.
