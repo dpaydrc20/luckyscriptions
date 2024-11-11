@@ -62,7 +62,7 @@ Create a `.env` file in the root directory to configure environment variables. H
 # .env
 
 # RPC Configuration
-NODE_RPC_URL=http://localhost:22555
+NODE_RPC_URL=http://localhost:port
 NODE_RPC_USER=your_rpc_username
 NODE_RPC_PASS=your_rpc_password
 
@@ -72,11 +72,7 @@ TESTNET=false
 # Fee Configuration
 FEE_PER_KB=100000000
 
-# Wallet Configuration
-WALLET=.wallet.json
 
-# Server Configuration
-SERVER_PORT=3000
 ```
 
 ### Environment Variables Explained
